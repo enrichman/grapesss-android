@@ -4,40 +4,46 @@ import android.Manifest
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
-import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiNetworkSpecifier
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PatternMatcher
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.annotation.RequiresApi
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import it.enrichman.grapesss.ui.theme.GrapesssTheme
+import org.apache.commons.io.IOUtils
+import java.io.BufferedInputStream
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
+
 
 const val TAG = "MyActivity"
 const val REQUEST_ENABLE_BT = 1
@@ -52,112 +58,34 @@ private const val SCAN_PERIOD: Long = 10000
 
 class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsResultCallback {
 
+    private val devices = mutableStateListOf<BluetoothDeviceInfo>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
             GrapesssTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Column {
-                        Greeting(
-                            name = "Android",
-                            modifier = Modifier.padding(innerPadding)
-                        )
-
-                        val devices = remember { mutableStateListOf<BluetoothDeviceInfo>() }
-                        val ctx = LocalContext.current
-
-                        BluetoothScanButton(
-                            onClick = { onBluetoothScanBtnClick(ctx, devices) },
-                            modifier = Modifier.padding(innerPadding)
-                        )
-
-                        BluetoothDeviceList(devices = devices)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Button(onClick = { onConfigureBtnClick(this@MainActivity) }) {
+                        Text("Configure")
                     }
+
+                    BluetoothScanButton(
+                        onClick = { onBluetoothScanBtnClick(this@MainActivity, devices) },
+                    )
+
+                    BluetoothDeviceList(devices = devices)
                 }
+
             }
         }
-
-        val bluetoothManager: BluetoothManager = getSystemService(BluetoothManager::class.java)
-        val bluetoothAdapter: BluetoothAdapter = bluetoothManager.adapter ?: return
-
-        // Check to see if the Bluetooth classic feature is available.
-        val bluetoothAvailable = packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH)
-        Log.i(TAG, "bluetooth Available $bluetoothAvailable");
-
-        // Check to see if the BLE feature is available.
-        val bluetoothLEAvailable =
-            packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)
-        Log.i(TAG, "bluetooth LE Available $bluetoothLEAvailable");
-
-        if (!bluetoothAdapter.isEnabled) {
-            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-            if (ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.BLUETOOTH_CONNECT
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                // TODO: Consider calling
-                //    ActivityCompat#requestPermissions
-                // here to request the missing permissions, and then overriding
-                //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-                //                                          int[] grantResults)
-                // to handle the case where the user grants the permission. See the documentation
-                // for ActivityCompat#requestPermissions for more details.
-                return
-            }
-            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
-        }
-
-
-        val permissions = arrayOf(
-            Manifest.permission.BLUETOOTH,
-            Manifest.permission.BLUETOOTH_ADMIN,
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.BLUETOOTH_ADVERTISE,
-        )
-
-        PermissionUtilities.checkPermissions(this, permissions, 123)
-
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_SCAN
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_CONNECT
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_ADMIN
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED &&
-            ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.BLUETOOTH_ADVERTISE
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(this, permissions, 123)
-        } else {
-            // Permission already granted, proceed with creating the notification
-        }
-
-
     }
 
     override fun onRequestPermissionsResult(
@@ -167,12 +95,88 @@ class MainActivity : ComponentActivity(), ActivityCompat.OnRequestPermissionsRes
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         Log.i(TAG, "onRequestPermissionsResult $permissions")
-    }
 
-    // onRequestPermissionsResult(int, String[], int[]) method.
+        if (requestCode == 122) {
+            configure(this)
+        } else if (requestCode == 123) {
+            bluetoothScan(this, devices)
+        }
+    }
 }
 
-fun onBluetoothScanBtnClick(context: Context, devices: MutableList<BluetoothDeviceInfo>) {
+fun onConfigureBtnClick(activity: Activity) {
+    // check permissions
+    val permissions = arrayOf(
+        Manifest.permission.ACCESS_WIFI_STATE,
+        Manifest.permission.CHANGE_WIFI_STATE,
+        Manifest.permission.CHANGE_NETWORK_STATE,
+    )
+
+    if (PermissionUtilities.checkPermissionsGranted(activity, permissions)) {
+        configure(activity)
+    } else {
+        PermissionUtilities.checkPermissions(activity, permissions, 122)
+    }
+}
+
+fun configure(activity: Activity) {
+    Log.i(TAG, "configuring")
+
+    // https://developer.android.com/develop/connectivity/wifi/wifi-bootstrap
+    val specifier = WifiNetworkSpecifier.Builder()
+        .setSsidPattern(PatternMatcher("ESP", PatternMatcher.PATTERN_PREFIX))
+        .setWpa2Passphrase("password")
+        // 64:e8:33 EspressIF - 64:e8:33:8a:d5:aa
+        //.setBssidPattern(MacAddress.fromString("64:e8:33:00:00:00"), MacAddress.fromString("ff:ff:ff:00:00:00"))
+        .build()
+
+    val request = NetworkRequest.Builder()
+        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+        .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        .setNetworkSpecifier(specifier)
+        .build()
+
+    val connectivityManager =
+        activity.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    connectivityManager.requestNetwork(request, networkCallback)
+
+    // Release the request when done.
+    // connectivityManager.unregisterNetworkCallback(networkCallback)
+}
+
+val networkCallback = object : ConnectivityManager.NetworkCallback() {
+
+    override fun onAvailable(network: Network) {
+        // do success processing here..
+        Log.i(TAG, "onAvailable: $network")
+
+        val url = URL("http://192.168.4.1/api/sysinfo")
+        val urlConnection = network.openConnection(url) as HttpURLConnection
+        try {
+            val inputStream: InputStream = BufferedInputStream(urlConnection.inputStream)
+            val total: String = IOUtils.toString(inputStream)
+            Log.i(TAG, "response: $total")
+
+        } finally {
+            urlConnection.disconnect()
+        }
+    }
+
+    override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+        println(networkCapabilities.toString())
+    }
+
+
+    override fun onUnavailable() {
+        // do failure processing here..
+        Log.e(TAG, "error on unavailable")
+    }
+
+
+}
+
+
+fun onBluetoothScanBtnClick(activity: Activity, devices: MutableList<BluetoothDeviceInfo>) {
     val permissions = arrayOf(
         Manifest.permission.BLUETOOTH,
         Manifest.permission.BLUETOOTH_ADMIN,
@@ -183,12 +187,16 @@ fun onBluetoothScanBtnClick(context: Context, devices: MutableList<BluetoothDevi
         Manifest.permission.BLUETOOTH_ADVERTISE,
     )
 
-    println("Bluetooth scan started...")
-
-    if (!PermissionUtilities.checkPermissionsGranted(context, permissions)) {
+    if (!PermissionUtilities.checkPermissionsGranted(activity, permissions)) {
+        PermissionUtilities.checkPermissions(activity, permissions, 123)
         return
     }
 
+    bluetoothScan(activity, devices)
+}
+
+
+fun bluetoothScan(context: Context, devices: MutableList<BluetoothDeviceInfo>) {
     val bluetoothManager: BluetoothManager = context.getSystemService(BluetoothManager::class.java)
     val bluetoothAdapter: BluetoothAdapter = bluetoothManager.adapter ?: return
     val bluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
@@ -255,10 +263,16 @@ class BluetoothScanCallback(
         }
         val macAddress = result.device.address
 
-        if (!seenMacAddresses.contains(macAddress)) {
-            devices.add(BluetoothDeviceInfo(deviceName, macAddress))
-            seenMacAddresses.add(macAddress)
+        if (!macAddress.startsWith("64:e8:33", ignoreCase = true)) {
+            return
         }
+
+        if (seenMacAddresses.contains(macAddress)) {
+            return
+        }
+
+        devices.add(BluetoothDeviceInfo(deviceName, macAddress))
+        seenMacAddresses.add(macAddress)
     }
 
     // Optionally, you can implement this method if you want to handle batch scan results
